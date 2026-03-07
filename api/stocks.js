@@ -88,11 +88,21 @@ export default async function handler(req, res) {
       };
     });
 
+    const marketStatus = getMarketStatus();
+
+    // 주말/장외: ±8% 초과 등락률은 Yahoo 크로스데이 왜곡 → null 처리
+    const sanitizedStocks = stocks.map(s => {
+      if (s.changePct !== null && Math.abs(s.changePct) > 8) {
+        return { ...s, change: null, changePct: null, dataNote: 'cross_day_distortion' };
+      }
+      return s;
+    });
+
     res.status(200).json({
       success: true,
       updatedAt: new Date().toISOString(),
-      marketStatus: getMarketStatus(),
-      stocks,
+      marketStatus,
+      stocks: sanitizedStocks,
     });
 
   } catch (error) {
