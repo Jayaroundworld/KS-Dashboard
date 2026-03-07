@@ -20,44 +20,61 @@ export default async function handler(req, res) {
   ];
 
   try {
-    // Yahoo Finance v8 API 직접 호출
-    const results = await Promise.allSettled(
-      tickers.map(async (stock) => {
-        const url = `https://query1.finance.yahoo.com/v8/finance/chart/${stock.ticker}?interval=1d&range=2d`;
-        const response = await fetch(url, {
-          headers: {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-            'Accept': 'application/json',
-          }
-        });
+    const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/122.0.0.0 Safari/537.36';
 
-        if (!response.ok) throw new Error(`HTTP ${response.status}`);
-        const data = await response.json();
-        const result = data?.chart?.result?.[0];
-        if (!result) throw new Error('No data');
-
-        const meta = result.meta;
-        const price = meta.regularMarketPrice || meta.previousClose;
-        const prevClose = meta.previousClose || meta.chartPreviousClose;
-        const change = price - prevClose;
-        const changePct = (change / prevClose) * 100;
-        const volume = meta.regularMarketVolume || 0;
-
+    async function fetchStock(stock) {
+      // 1차: v7 quote (등락률 직접 포함)
+      try {
+        const url = `https://query1.finance.yahoo.com/v7/finance/quote?symbols=${stock.ticker}`;
+        const r = await fetch(url, { headers: { 'User-Agent': UA, 'Accept': 'application/json' } });
+        if (!r.ok) throw new Error(`v7 HTTP ${r.status}`);
+        const data = await r.json();
+        const q = data?.quoteResponse?.result?.[0];
+        if (!q || q.regularMarketPrice == null) throw new Error('No v7 quote');
         return {
           ...stock,
-          price: Math.round(price),
-          prevClose: Math.round(prevClose),
-          change: Math.round(change),
-          changePct: parseFloat(changePct.toFixed(2)),
-          volume,
-          high52: Math.round(meta.fiftyTwoWeekHigh || 0),
-          low52: Math.round(meta.fiftyTwoWeekLow || 0),
-          marketCap: meta.marketCap || 0,
+          price:     Math.round(q.regularMarketPrice),
+          prevClose: Math.round(q.regularMarketPreviousClose ?? q.regularMarketPrice),
+          change:    Math.round(q.regularMarketChange ?? 0),
+          changePct: parseFloat((q.regularMarketChangePercent ?? 0).toFixed(2)),
+          volume:    q.regularMarketVolume ?? 0,
+          high52:    Math.round(q.fiftyTwoWeekHigh ?? 0),
+          low52:     Math.round(q.fiftyTwoWeekLow ?? 0),
+          marketCap: q.marketCap ?? 0,
           status: 'ok',
           updatedAt: new Date().toISOString(),
         };
-      })
-    );
+      } catch(_) {}
+
+      // 2차: v8 chart fallback
+      const url = `https://query1.finance.yahoo.com/v8/finance/chart/${stock.ticker}?interval=1d&range=5d`;
+      const response = await fetch(url, { headers: { 'User-Agent': UA } });
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      const data = await response.json();
+      const result = data?.chart?.result?.[0];
+      if (!result) throw new Error('No data');
+      const meta = result.meta;
+      const closes = (result.indicators?.quote?.[0]?.close ?? []).filter(v => v != null);
+      const price     = meta.regularMarketPrice ?? closes.at(-1) ?? 0;
+      const prevClose = meta.chartPreviousClose ?? meta.previousClose ?? closes.at(-2) ?? price;
+      const change    = price - prevClose;
+      const changePct = prevClose !== 0 ? (change / prevClose) * 100 : 0;
+      return {
+        ...stock,
+        price:     Math.round(price),
+        prevClose: Math.round(prevClose),
+        change:    Math.round(change),
+        changePct: parseFloat(changePct.toFixed(2)),
+        volume:    meta.regularMarketVolume ?? 0,
+        high52:    Math.round(meta.fiftyTwoWeekHigh ?? 0),
+        low52:     Math.round(meta.fiftyTwoWeekLow ?? 0),
+        marketCap: meta.marketCap ?? 0,
+        status: 'ok',
+        updatedAt: new Date().toISOString(),
+      };
+    }
+
+    const results = await Promise.allSettled(tickers.map(fetchStock));
 
     const stocks = results.map((result, i) => {
       if (result.status === 'fulfilled') return result.value;
