@@ -663,27 +663,67 @@ async function fetchMarket() {
     if(!res.ok) return;
     const data = await res.json();
     if(!data.success) return;
-    const { market } = data;
+    const { market, marketStatus } = data;
 
-    const kospi = market['KOSPI'];
+    // 장 상태 배지 업데이트
+    const badge = document.getElementById('marketStatusBadge');
+    if(badge && marketStatus) {
+      const map = {
+        open:    { cls:'status-open',   text:'● 장중 (09:00~15:30)' },
+        pre:     { cls:'status-pre',    text:'◑ 장전 시간외' },
+        after:   { cls:'status-pre',    text:'◑ 장후 시간외' },
+        weekend: { cls:'status-closed', text:'⏸ 주말 휴장' },
+        closed:  { cls:'status-closed', text:'⏸ 장외시간' },
+      };
+      const m = map[marketStatus] || map.closed;
+      badge.className = 'market-status-badge ' + m.cls;
+      badge.textContent = m.text;
+    }
+
+    // null-safe 포맷 헬퍼
+    function fmtStrip(item, invertColor) {
+      const priceStr = item.price ? item.price.toLocaleString('ko-KR') : '--';
+      if(item.changePct == null) {
+        return '<span class="neu">' + priceStr + ' <span style="color:var(--muted);font-size:10px">(장외)</span></span>';
+      }
+      const up = invertColor ? item.changePct < 0 : item.changePct >= 0;
+      const cls = up ? 'up' : 'dn';
+      const arrow = item.changePct >= 0 ? '▲' : '▼';
+      return '<span class="' + cls + '">' + priceStr + ' ' + arrow + ' ' + Math.abs(item.changePct).toFixed(2) + '%</span>';
+    }
+
+    const kospi  = market['KOSPI'];
     const kosdaq = market['KOSDAQ'];
-    const usd = market['USD/KRW'];
+    const usd    = market['USD/KRW'];
 
-    if(kospi?.price) {
-      const cls = kospi.changePct >= 0 ? 'up' : 'dn';
-      const arrow = kospi.changePct >= 0 ? '▲' : '▼';
-      document.getElementById('strip-kospi').innerHTML = `<span class="${cls}">${kospi.price.toLocaleString()} ${arrow} ${Math.abs(kospi.changePct).toFixed(2)}%</span>`;
-      document.getElementById('macro-kospi').innerHTML = `<span class="${cls}">${kospi.price.toLocaleString()} (${kospi.changePct>=0?'+':''}${kospi.changePct?.toFixed(2)}%)</span>`;
+    if(kospi && kospi.price) {
+      document.getElementById('strip-kospi').innerHTML = fmtStrip(kospi, false);
+      const macroEl = document.getElementById('macro-kospi');
+      if(macroEl) {
+        if(kospi.changePct != null) {
+          const cls = kospi.changePct >= 0 ? 'up' : 'dn';
+          const sign = kospi.changePct >= 0 ? '+' : '';
+          macroEl.innerHTML = '<span class="' + cls + '">' + kospi.price.toLocaleString() + ' (' + sign + kospi.changePct.toFixed(2) + '%)</span>';
+        } else {
+          macroEl.innerHTML = '<span class="neu">' + kospi.price.toLocaleString() + ' <span style="font-size:10px;color:var(--muted)">(장외)</span></span>';
+        }
+      }
     }
-    if(kosdaq?.price) {
-      const cls = kosdaq.changePct >= 0 ? 'up' : 'dn';
-      const arrow = kosdaq.changePct >= 0 ? '▲' : '▼';
-      document.getElementById('strip-kosdaq').innerHTML = `<span class="${cls}">${kosdaq.price.toLocaleString()} ${arrow} ${Math.abs(kosdaq.changePct).toFixed(2)}%</span>`;
+    if(kosdaq && kosdaq.price) {
+      document.getElementById('strip-kosdaq').innerHTML = fmtStrip(kosdaq, false);
     }
-    if(usd?.price) {
-      const cls = usd.changePct >= 0 ? 'dn' : 'up'; // 환율 상승 = 원화 약세
-      document.getElementById('strip-usd').innerHTML = `<span class="${cls}">${usd.price.toLocaleString()}원</span>`;
-      document.getElementById('macro-usd').innerHTML = `<span class="${cls}">${usd.price.toLocaleString()}원 (${usd.changePct>=0?'+':''}${usd.changePct?.toFixed(2)}%)</span>`;
+    if(usd && usd.price) {
+      document.getElementById('strip-usd').innerHTML = fmtStrip(usd, true);
+      const macroEl = document.getElementById('macro-usd');
+      if(macroEl) {
+        if(usd.changePct != null) {
+          const cls = usd.changePct >= 0 ? 'dn' : 'up';
+          const sign = usd.changePct >= 0 ? '+' : '';
+          macroEl.innerHTML = '<span class="' + cls + '">' + usd.price.toLocaleString() + '원 (' + sign + usd.changePct.toFixed(2) + '%)</span>';
+        } else {
+          macroEl.innerHTML = '<span class="neu">' + usd.price.toLocaleString() + '원 <span style="font-size:10px;color:var(--muted)">(장외)</span></span>';
+        }
+      }
     }
   } catch(e) { console.warn('Market fetch error:', e); }
 }
