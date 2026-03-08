@@ -702,6 +702,28 @@ function renderSummary(all) {
 
 // ===== 마켓 지수 업데이트 =====
 async function fetchMarket() {
+  // ── 포맷 헬퍼 (try 블록 밖) ──
+  function fmtStrip(item, invertColor) {
+    const priceStr = item.price ? item.price.toLocaleString('ko-KR') : '--';
+    if(item.changePct == null) {
+      return '<span class="neu">' + priceStr + ' <span style="color:var(--muted);font-size:10px">(장외)</span></span>';
+    }
+    const up = invertColor ? item.changePct < 0 : item.changePct >= 0;
+    const cls = up ? 'up' : 'dn';
+    const arrow = item.changePct >= 0 ? '▲' : '▼';
+    return '<span class="' + cls + '">' + priceStr + ' ' + arrow + ' ' + Math.abs(item.changePct).toFixed(2) + '%</span>';
+  }
+
+  function fmtUS(item) {
+    if(!item || !item.price) return '<span class="loading-shimmer" style="width:70px;height:13px"></span>';
+    const priceStr = item.price.toLocaleString('en-US');
+    if(item.changePct == null) return '<span class="neu">' + priceStr + '</span>';
+    const up  = item.changePct >= 0;
+    const cls = up ? 'up' : 'dn';
+    const arrow = up ? '▲' : '▼';
+    return '<span class="' + cls + '">' + priceStr + ' ' + arrow + ' ' + Math.abs(item.changePct).toFixed(2) + '%</span>';
+  }
+
   try {
     const res = await fetch('/api/market');
     if(!res.ok) return;
@@ -722,18 +744,6 @@ async function fetchMarket() {
       const m = map[marketStatus] || map.closed;
       badge.className = 'market-status-badge ' + m.cls;
       badge.textContent = m.text;
-    }
-
-    // null-safe 포맷 헬퍼
-    function fmtStrip(item, invertColor) {
-      const priceStr = item.price ? item.price.toLocaleString('ko-KR') : '--';
-      if(item.changePct == null) {
-        return '<span class="neu">' + priceStr + ' <span style="color:var(--muted);font-size:10px">(장외)</span></span>';
-      }
-      const up = invertColor ? item.changePct < 0 : item.changePct >= 0;
-      const cls = up ? 'up' : 'dn';
-      const arrow = item.changePct >= 0 ? '▲' : '▼';
-      return '<span class="' + cls + '">' + priceStr + ' ' + arrow + ' ' + Math.abs(item.changePct).toFixed(2) + '%</span>';
     }
 
     const kospi  = market['KOSPI'];
@@ -770,18 +780,7 @@ async function fetchMarket() {
       }
     }
 
-    // ── 미국 지수 렌더링 ──
-    function fmtUS(item) {
-      if(!item || !item.price) return '<span class="loading-shimmer" style="width:70px;height:13px"></span>';
-      const priceStr = item.price.toLocaleString('en-US');
-      if(item.changePct == null) return '<span class="neu">' + priceStr + '</span>';
-      const up  = item.changePct >= 0;
-      const cls = up ? 'up' : 'dn';
-      const arrow = up ? '▲' : '▼';
-      return '<span class="' + cls + '">' + priceStr + ' ' + arrow + ' ' + Math.abs(item.changePct).toFixed(2) + '%</span>';
-    }
-
-    // 미국 현물 지수
+    // ── 미국 현물 지수
     const usMap = {};
     (data.us || []).forEach(i => { usMap[i.name] = i; });
     const elSP = document.getElementById('strip-sp500');
