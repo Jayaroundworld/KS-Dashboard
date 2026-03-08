@@ -75,7 +75,7 @@
 
   /* ── 미니 캔들차트 ── */
   .chart-wrap { width:100%; margin:12px 0 8px; }
-  .chart-canvas { width:100%; height:90px; display:block; }
+  .chart-canvas { width:100%; height:110px; display:block; }
   .chart-vol-canvas { width:100%; height:28px; display:block; margin-top:2px; }
   /* ALERT */
   .alert-banner { background:linear-gradient(90deg,rgba(255,107,53,0.12),rgba(255,59,92,0.08)); border:1px solid rgba(255,107,53,0.25); border-radius:8px; padding:10px 18px; margin:20px 0; display:flex; align-items:center; gap:10px; font-size:12.5px; }
@@ -863,8 +863,92 @@ function drawMiniChart(code, ticker) {
     .catch(function(e){ console.warn('chart fetch error:', e); });
 }
 
+// ── 지지/저항 알고리즘 ──
+// 방법: 피벗 고점/저점 + 거래량 가중 클러스터링
+function calcSupportResistance(candles) {
+  var n = candles.length;
+  if (n < 10) return { supports: [], resistances: [] };
+
+  var prices = [];
+
+  // 1. 피벗 고점/저점 탐지 (좌우 3봉 비교)
+  var WING = 3;
+  for (var i = WING; i < n - WING; i++) {
+    var c = candles[i];
+    var isLocalHigh = true, isLocalLow = true;
+    for (var j = i - WING; j <= i + WING; j++) {
+      if (j === i) continue;
+      if (candles[j].h >= c.h) isLocalHigh = false;
+      if (candles[j].l <= c.l) isLocalLow  = false;
+    }
+    // 거래량 가중 (평균 대비 1.2배 이상이면 강한 피벗)
+    var avgVol = 0;
+    for (var k = 0; k < n; k++) avgVol += candles[k].v;
+    avgVol /= n;
+    var volWeight = Math.min(3, candles[i].v / avgVol);
+
+    if (isLocalHigh) prices.push({ price: c.h, type: 'R', weight: volWeight, idx: i });
+    if (isLocalLow)  prices.push({ price: c.l, type: 'S', weight: volWeight, idx: i });
+  }
+
+  // 52주 고/저가도 추가 (강한 레벨)
+  var allH = candles.map(function(c){ return c.h; });
+  var allL = candles.map(function(c){ return c.l; });
+  var high52 = Math.max.apply(null, allH);
+  var low52  = Math.min.apply(null, allL);
+  prices.push({ price: high52, type: 'R', weight: 3, idx: -1 });
+  prices.push({ price: low52,  type: 'S', weight: 3, idx: -1 });
+
+  // 2. 클러스터링: 가격 범위의 1.5% 이내는 같은 레벨로 합산
+  var pRange = high52 - low52 || 1;
+  var threshold = pRange * 0.015;
+
+  function cluster(arr) {
+    arr.sort(function(a, b){ return a.price - b.price; });
+    var clusters = [];
+    arr.forEach(function(p) {
+      var found = false;
+      for (var ci = 0; ci < clusters.length; ci++) {
+        if (Math.abs(clusters[ci].price - p.price) < threshold) {
+          // 가중 평균으로 합산
+          var tw = clusters[ci].weight + p.weight;
+          clusters[ci].price = (clusters[ci].price * clusters[ci].weight + p.price * p.weight) / tw;
+          clusters[ci].weight = tw;
+          clusters[ci].lastIdx = Math.max(clusters[ci].lastIdx, p.idx);
+          found = true;
+          break;
+        }
+      }
+      if (!found) clusters.push({ price: p.price, weight: p.weight, lastIdx: p.idx });
+    });
+    return clusters;
+  }
+
+  var sArr = prices.filter(function(p){ return p.type === 'S'; });
+  var rArr = prices.filter(function(p){ return p.type === 'R'; });
+  var sClusters = cluster(sArr);
+  var rClusters = cluster(rArr);
+
+  // 3. 현재가 기준: 지지=현재가 이하, 저항=현재가 이상 / 강도순 상위 3개
+  var curPrice = candles[n - 1].c;
+
+  sClusters = sClusters
+    .filter(function(c){ return c.price < curPrice * 1.01; })
+    .sort(function(a, b){ return b.weight - a.weight; })
+    .slice(0, 3)
+    .map(function(c){ return c.price; });
+
+  rClusters = rClusters
+    .filter(function(c){ return c.price > curPrice * 0.99; })
+    .sort(function(a, b){ return b.weight - a.weight; })
+    .slice(0, 3)
+    .map(function(c){ return c.price; });
+
+  return { supports: sClusters, resistances: rClusters };
+}
+
 function renderChart(ctx, vctx, W, H, VH, candles) {
-  const PAD_L = 2, PAD_R = 2, PAD_T = 6, PAD_B = 4;
+  const PAD_L = 2, PAD_R = 38, PAD_T = 6, PAD_B = 4;
   const n = candles.length;
   if (!n) return;
 
@@ -876,7 +960,10 @@ function renderChart(ctx, vctx, W, H, VH, candles) {
     return sum / 20;
   });
 
-  // 가격 범위
+  // 지지/저항 계산
+  var sr = calcSupportResistance(candles);
+
+  // 가격 범위 (지지/저항 포함)
   var pMin = Infinity, pMax = -Infinity;
   candles.forEach(function(c) { if (c.l < pMin) pMin = c.l; if (c.h > pMax) pMax = c.h; });
   ma20.forEach(function(v) { if (v && v < pMin) pMin = v; if (v && v > pMax) pMax = v; });
@@ -890,35 +977,72 @@ function renderChart(ctx, vctx, W, H, VH, candles) {
   var bw = Math.max(1, cw * 0.6);
 
   function py(price) { return PAD_T + (1 - (price - pMin) / pRange) * (H - PAD_T - PAD_B); }
+  function fmt(p) {
+    if (p >= 1000) return (p/1000).toFixed(0) + 'k';
+    return p.toFixed(0);
+  }
 
   // 배경
   ctx.clearRect(0, 0, W, H);
   vctx.clearRect(0, 0, W, VH);
-  ctx.fillStyle = 'rgba(0,0,0,0)';
 
-  // 캔들 그리기
+  // ── 저항선 (파란색 점선) ──
+  ctx.save();
+  ctx.strokeStyle = '#4488ff';
+  ctx.lineWidth = 1;
+  ctx.setLineDash([3, 3]);
+  sr.resistances.forEach(function(price) {
+    var y = py(price);
+    ctx.beginPath();
+    ctx.moveTo(PAD_L, y);
+    ctx.lineTo(W - PAD_R + 2, y);
+    ctx.stroke();
+    // 가격 라벨
+    ctx.fillStyle = '#4488ff';
+    ctx.font = '9px DM Mono, monospace';
+    ctx.textAlign = 'left';
+    ctx.fillText(fmt(price), W - PAD_R + 4, y + 3);
+  });
+  ctx.restore();
+
+  // ── 지지선 (빨간색 점선) ──
+  ctx.save();
+  ctx.strokeStyle = '#ff3b5c';
+  ctx.lineWidth = 1;
+  ctx.setLineDash([3, 3]);
+  sr.supports.forEach(function(price) {
+    var y = py(price);
+    ctx.beginPath();
+    ctx.moveTo(PAD_L, y);
+    ctx.lineTo(W - PAD_R + 2, y);
+    ctx.stroke();
+    // 가격 라벨
+    ctx.fillStyle = '#ff3b5c';
+    ctx.font = '9px DM Mono, monospace';
+    ctx.textAlign = 'left';
+    ctx.fillText(fmt(price), W - PAD_R + 4, y + 3);
+  });
+  ctx.restore();
+
+  // ── 캔들 그리기 ──
+  ctx.setLineDash([]);
   candles.forEach(function(c, i) {
     var x = PAD_L + i * cw + cw / 2;
     var isUp = c.c >= c.o;
     var color = isUp ? '#ff3b5c' : '#4488ff';
-
-    // 심지
     ctx.strokeStyle = color;
     ctx.lineWidth = 1;
     ctx.beginPath();
     ctx.moveTo(x, py(c.h));
     ctx.lineTo(x, py(c.l));
     ctx.stroke();
-
-    // 몸통
     var y1 = py(Math.max(c.o, c.c));
     var y2 = py(Math.min(c.o, c.c));
-    var bh = Math.max(1, y2 - y1);
     ctx.fillStyle = color;
-    ctx.fillRect(x - bw / 2, y1, bw, bh);
+    ctx.fillRect(x - bw / 2, y1, bw, Math.max(1, y2 - y1));
   });
 
-  // MA20 선
+  // ── MA20 선 ──
   ctx.strokeStyle = '#ffd700';
   ctx.lineWidth = 1.5;
   ctx.setLineDash([]);
@@ -932,7 +1056,7 @@ function renderChart(ctx, vctx, W, H, VH, candles) {
   });
   ctx.stroke();
 
-  // 거래량 바
+  // ── 거래량 바 ──
   candles.forEach(function(c, i) {
     var x = PAD_L + i * cw;
     var vh = Math.max(1, (c.v / vMax) * (VH - 2));
