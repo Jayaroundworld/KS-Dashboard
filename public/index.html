@@ -53,8 +53,16 @@
   .status-pre { background:rgba(255,215,0,0.15); color:var(--gold); border:1px solid rgba(255,215,0,0.3); }
 
   /* MARKET STRIP */
-  .market-strip { background:var(--surface); border-bottom:1px solid var(--border); padding:10px 0; }
-  .market-strip-inner { display:flex; gap:32px; align-items:center; flex-wrap:wrap; }
+  .market-strip { background:var(--surface); border-bottom:1px solid var(--border); padding:8px 0; }
+  .market-strip-row { display:flex; gap:24px; align-items:center; flex-wrap:wrap; padding:4px 0; }
+  .market-strip-row + .market-strip-row { border-top:1px solid rgba(255,255,255,0.04); padding-top:6px; margin-top:2px; }
+  .market-strip-divider { width:1px; height:16px; background:var(--border); flex-shrink:0; }
+  .us-label { font-size:9px; letter-spacing:2px; text-transform:uppercase; color:rgba(255,215,0,0.5); font-family:var(--font-mono); margin-right:-16px; }
+  .futures-chip { font-size:9px; background:rgba(255,107,53,0.15); color:var(--accent2); border:1px solid rgba(255,107,53,0.2); border-radius:3px; padding:1px 5px; font-family:var(--font-mono); margin-left:4px; vertical-align:middle; }
+  .vix-chip { font-size:9px; border-radius:3px; padding:1px 5px; font-family:var(--font-mono); margin-left:4px; }
+  .vix-low  { background:rgba(0,232,122,0.1); color:var(--green); border:1px solid rgba(0,232,122,0.2); }
+  .vix-mid  { background:rgba(255,215,0,0.1); color:var(--gold); border:1px solid rgba(255,215,0,0.2); }
+  .vix-high { background:rgba(255,59,92,0.1); color:var(--red); border:1px solid rgba(255,59,92,0.2); }
   .market-item { display:flex; align-items:center; gap:8px; font-size:13px; }
   .market-label { color:var(--muted); font-weight:300; font-size:11px; letter-spacing:1px; }
   .market-val { font-family:var(--font-mono); font-weight:500; }
@@ -231,7 +239,8 @@
 <!-- MARKET STRIP -->
 <div class="market-strip">
   <div class="container">
-    <div class="market-strip-inner">
+    <!-- 1행: 한국 지수 + 수급 -->
+    <div class="market-strip-row">
       <div class="market-item">
         <span class="market-label">KOSPI</span>
         <span class="market-val" id="strip-kospi"><span class="loading-shimmer"></span></span>
@@ -244,6 +253,7 @@
         <span class="market-label">USD/KRW</span>
         <span class="market-val" id="strip-usd"><span class="loading-shimmer"></span></span>
       </div>
+      <div class="market-strip-divider"></div>
       <div class="market-item">
         <span class="market-label">예탁금</span>
         <span class="market-val neu">119.5조원</span>
@@ -255,6 +265,40 @@
       <div class="market-item">
         <span class="market-label">한은 기준금리</span>
         <span class="market-val neu">2.50%</span>
+      </div>
+    </div>
+    <!-- 2행: 미국 지수 + 선물 + VIX -->
+    <div class="market-strip-row">
+      <span class="us-label">🇺🇸 US</span>
+      <div class="market-item">
+        <span class="market-label">S&amp;P500</span>
+        <span class="market-val" id="strip-sp500"><span style="color:var(--muted)">로딩...</span></span>
+      </div>
+      <div class="market-item">
+        <span class="market-label">나스닥</span>
+        <span class="market-val" id="strip-nasdaq"><span style="color:var(--muted)">로딩...</span></span>
+      </div>
+      <div class="market-item">
+        <span class="market-label">다우</span>
+        <span class="market-val" id="strip-dow"><span style="color:var(--muted)">로딩...</span></span>
+      </div>
+      <div class="market-strip-divider"></div>
+      <div class="market-item">
+        <span class="market-label">S&amp;P선물 <span class="futures-chip">FUTURES</span></span>
+        <span class="market-val" id="strip-spfut"><span style="color:var(--muted)">로딩...</span></span>
+      </div>
+      <div class="market-item">
+        <span class="market-label">나스닥선물 <span class="futures-chip">FUTURES</span></span>
+        <span class="market-val" id="strip-nqfut"><span style="color:var(--muted)">로딩...</span></span>
+      </div>
+      <div class="market-strip-divider"></div>
+      <div class="market-item">
+        <span class="market-label">VIX <span id="vix-chip" class="vix-chip vix-mid">공포지수</span></span>
+        <span class="market-val" id="strip-vix"><span style="color:var(--muted)">로딩...</span></span>
+      </div>
+      <div class="market-item">
+        <span class="market-label">달러인덱스</span>
+        <span class="market-val" id="strip-dxy"><span style="color:var(--muted)">로딩...</span></span>
       </div>
     </div>
   </div>
@@ -658,35 +702,75 @@ function renderSummary(all) {
 
 // ===== 마켓 지수 업데이트 =====
 async function fetchMarket() {
-  try {
-    const res = await fetch('/api/market');
-    if(!res.ok) return;
-    const data = await res.json();
-    if(!data.success) return;
-    const { market } = data;
+  function fmtKR(item, invertColor) {
+    if (!item || !item.price) return '<span style="color:var(--muted)">--</span>';
+    var priceStr = item.price.toLocaleString("ko-KR");
+    if (item.changePct == null) return '<span class="neu">' + priceStr + ' <span style="color:var(--muted);font-size:10px">(장외)</span></span>';
+    var up = invertColor ? item.changePct < 0 : item.changePct >= 0;
+    var cls = up ? "up" : "dn";
+    var arrow = item.changePct >= 0 ? "▲" : "▼";
+    return '<span class="' + cls + '">' + priceStr + " " + arrow + " " + Math.abs(item.changePct).toFixed(2) + "%</span>";
+  }
+  function fmtUS(item) {
+    if (!item || !item.price) return '<span style="color:var(--muted)">--</span>';
+    var priceStr = item.price.toLocaleString("en-US");
+    if (item.changePct == null) return '<span class="neu">' + priceStr + "</span>";
+    var up = item.changePct >= 0;
+    var cls = up ? "up" : "dn";
+    var arrow = up ? "▲" : "▼";
+    return '<span class="' + cls + '">' + priceStr + " " + arrow + " " + Math.abs(item.changePct).toFixed(2) + "%</span>";
+  }
+  function setEl(id, html) { var el = document.getElementById(id); if (el) el.innerHTML = html; }
 
-    const kospi = market['KOSPI'];
-    const kosdaq = market['KOSDAQ'];
-    const usd = market['USD/KRW'];
+  async function fetchMarket() {
+    try {
+      var res = await fetch("/api/market");
+      if (!res.ok) return;
+      var data = await res.json();
+      if (!data.success) return;
 
-    if(kospi?.price) {
-      const cls = kospi.changePct >= 0 ? 'up' : 'dn';
-      const arrow = kospi.changePct >= 0 ? '▲' : '▼';
-      document.getElementById('strip-kospi').innerHTML = `<span class="${cls}">${kospi.price.toLocaleString()} ${arrow} ${Math.abs(kospi.changePct).toFixed(2)}%</span>`;
-      document.getElementById('macro-kospi').innerHTML = `<span class="${cls}">${kospi.price.toLocaleString()} (${kospi.changePct>=0?'+':''}${kospi.changePct?.toFixed(2)}%)</span>`;
-    }
-    if(kosdaq?.price) {
-      const cls = kosdaq.changePct >= 0 ? 'up' : 'dn';
-      const arrow = kosdaq.changePct >= 0 ? '▲' : '▼';
-      document.getElementById('strip-kosdaq').innerHTML = `<span class="${cls}">${kosdaq.price.toLocaleString()} ${arrow} ${Math.abs(kosdaq.changePct).toFixed(2)}%</span>`;
-    }
-    if(usd?.price) {
-      const cls = usd.changePct >= 0 ? 'dn' : 'up'; // 환율 상승 = 원화 약세
-      document.getElementById('strip-usd').innerHTML = `<span class="${cls}">${usd.price.toLocaleString()}원</span>`;
-      document.getElementById('macro-usd').innerHTML = `<span class="${cls}">${usd.price.toLocaleString()}원 (${usd.changePct>=0?'+':''}${usd.changePct?.toFixed(2)}%)</span>`;
-    }
-  } catch(e) { console.warn('Market fetch error:', e); }
-}
+      // 장 상태 배지
+      var badge = document.getElementById("marketStatusBadge");
+      if (badge && data.marketStatus) {
+        var sm = {open:{cls:"status-open",text:"● 장중 (09:00~15:30)"},pre:{cls:"status-pre",text:"◑ 장전 시간외"},after:{cls:"status-pre",text:"◑ 장후 시간외"},weekend:{cls:"status-closed",text:"⏸ 주말 휴장"},closed:{cls:"status-closed",text:"⏸ 장외시간"}}[data.marketStatus] || {cls:"status-closed",text:"⏸ 장외시간"};
+        badge.className = "market-status-badge " + sm.cls;
+        badge.textContent = sm.text;
+      }
+
+      // 한국 지수
+      var krMap = {};
+      (data.kr || []).forEach(function(i){ krMap[i.name] = i; });
+      if (!krMap["KOSPI"] && data.market) { Object.values(data.market).forEach(function(i){ krMap[i.name]=i; }); }
+      setEl("strip-kospi",  fmtKR(krMap["KOSPI"], false));
+      setEl("strip-kosdaq", fmtKR(krMap["KOSDAQ"], false));
+      setEl("strip-usd",    fmtKR(krMap["USD/KRW"], true));
+      var mk = document.getElementById("macro-kospi"); if(mk) mk.innerHTML = fmtKR(krMap["KOSPI"], false);
+      var mu = document.getElementById("macro-usd");   if(mu) mu.innerHTML = fmtKR(krMap["USD/KRW"], true);
+
+      // 미국 현물
+      var usMap = {};
+      (data.us || []).forEach(function(i){ usMap[i.name] = i; });
+      setEl("strip-sp500",  fmtUS(usMap["S&P500"]));
+      setEl("strip-nasdaq", fmtUS(usMap["나스닥"]));
+      setEl("strip-dow",    fmtUS(usMap["다우"]));
+      setEl("strip-dxy",    fmtUS(usMap["달러인덱스"]));
+
+      // 선물
+      var futMap = {};
+      (data.us_futures || []).forEach(function(i){ futMap[i.name] = i; });
+      setEl("strip-spfut", fmtUS(futMap["S&P선물"]));
+      setEl("strip-nqfut", fmtUS(futMap["나스닥선물"]));
+
+      // VIX
+      var vl = data.us_vix || [];
+      if (vl.length && vl[0].price) {
+        var v = vl[0].price;
+        setEl("strip-vix", '<span class="' + (v<15?"up":v<25?"neu":"dn") + '">' + v.toFixed(2) + "</span>");
+        var chip = document.getElementById("vix-chip");
+        if (chip) { chip.className="vix-chip "+(v<15?"vix-low":v<20?"vix-mid":v<30?"vix-mid":"vix-high"); chip.textContent=v<15?"안도":v<20?"중립":v<30?"경계":"공포"; }
+      }
+    } catch(e) { console.warn("fetchMarket error:", e); }
+  }
 
 // ===== 주식 데이터 fetch =====
 async function fetchStocks() {
