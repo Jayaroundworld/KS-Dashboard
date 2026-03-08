@@ -3,7 +3,7 @@
 
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Cache-Control', 's-maxage=60, stale-while-revalidate=30');
+  res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
 
   const KR_INDICES = [
     { name: 'KOSPI',   ticker: '^KS11',    group: 'kr' },

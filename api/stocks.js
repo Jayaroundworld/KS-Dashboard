@@ -4,7 +4,7 @@
 export default async function handler(req, res) {
   // CORS 허용
   res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Cache-Control', 's-maxage=60, stale-while-revalidate=30');
+  res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
 
   const tickers = [
     { name: '테크윙',           code: '089030', ticker: '089030.KQ', market: 'KOSDAQ', sector: 'HBM 검사장비' },
