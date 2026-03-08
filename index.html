@@ -702,122 +702,75 @@ function renderSummary(all) {
 
 // ===== 마켓 지수 업데이트 =====
 async function fetchMarket() {
-  // ── 포맷 헬퍼 (try 블록 밖) ──
-  function fmtStrip(item, invertColor) {
-    const priceStr = item.price ? item.price.toLocaleString('ko-KR') : '--';
-    if(item.changePct == null) {
-      return '<span class="neu">' + priceStr + ' <span style="color:var(--muted);font-size:10px">(장외)</span></span>';
-    }
-    const up = invertColor ? item.changePct < 0 : item.changePct >= 0;
-    const cls = up ? 'up' : 'dn';
-    const arrow = item.changePct >= 0 ? '▲' : '▼';
-    return '<span class="' + cls + '">' + priceStr + ' ' + arrow + ' ' + Math.abs(item.changePct).toFixed(2) + '%</span>';
+  function fmtKR(item, invertColor) {
+    if (!item || !item.price) return '<span style="color:var(--muted)">--</span>';
+    var priceStr = item.price.toLocaleString("ko-KR");
+    if (item.changePct == null) return '<span class="neu">' + priceStr + ' <span style="color:var(--muted);font-size:10px">(장외)</span></span>';
+    var up = invertColor ? item.changePct < 0 : item.changePct >= 0;
+    var cls = up ? "up" : "dn";
+    var arrow = item.changePct >= 0 ? "▲" : "▼";
+    return '<span class="' + cls + '">' + priceStr + " " + arrow + " " + Math.abs(item.changePct).toFixed(2) + "%</span>";
   }
-
   function fmtUS(item) {
-    if(!item || !item.price) return '<span class="loading-shimmer" style="width:70px;height:13px"></span>';
-    const priceStr = item.price.toLocaleString('en-US');
-    if(item.changePct == null) return '<span class="neu">' + priceStr + '</span>';
-    const up  = item.changePct >= 0;
-    const cls = up ? 'up' : 'dn';
-    const arrow = up ? '▲' : '▼';
-    return '<span class="' + cls + '">' + priceStr + ' ' + arrow + ' ' + Math.abs(item.changePct).toFixed(2) + '%</span>';
+    if (!item || !item.price) return '<span style="color:var(--muted)">--</span>';
+    var priceStr = item.price.toLocaleString("en-US");
+    if (item.changePct == null) return '<span class="neu">' + priceStr + "</span>";
+    var up = item.changePct >= 0;
+    var cls = up ? "up" : "dn";
+    var arrow = up ? "▲" : "▼";
+    return '<span class="' + cls + '">' + priceStr + " " + arrow + " " + Math.abs(item.changePct).toFixed(2) + "%</span>";
   }
+  function setEl(id, html) { var el = document.getElementById(id); if (el) el.innerHTML = html; }
 
-  try {
-    const res = await fetch('/api/market');
-    if(!res.ok) return;
-    const data = await res.json();
-    if(!data.success) return;
-    const { market, marketStatus } = data;
+  async function fetchMarket() {
+    try {
+      var res = await fetch("/api/market");
+      if (!res.ok) return;
+      var data = await res.json();
+      if (!data.success) return;
 
-    // 장 상태 배지 업데이트
-    const badge = document.getElementById('marketStatusBadge');
-    if(badge && marketStatus) {
-      const map = {
-        open:    { cls:'status-open',   text:'● 장중 (09:00~15:30)' },
-        pre:     { cls:'status-pre',    text:'◑ 장전 시간외' },
-        after:   { cls:'status-pre',    text:'◑ 장후 시간외' },
-        weekend: { cls:'status-closed', text:'⏸ 주말 휴장' },
-        closed:  { cls:'status-closed', text:'⏸ 장외시간' },
-      };
-      const m = map[marketStatus] || map.closed;
-      badge.className = 'market-status-badge ' + m.cls;
-      badge.textContent = m.text;
-    }
-
-    const kospi  = market['KOSPI'];
-    const kosdaq = market['KOSDAQ'];
-    const usd    = market['USD/KRW'];
-
-    if(kospi && kospi.price) {
-      document.getElementById('strip-kospi').innerHTML = fmtStrip(kospi, false);
-      const macroEl = document.getElementById('macro-kospi');
-      if(macroEl) {
-        if(kospi.changePct != null) {
-          const cls = kospi.changePct >= 0 ? 'up' : 'dn';
-          const sign = kospi.changePct >= 0 ? '+' : '';
-          macroEl.innerHTML = '<span class="' + cls + '">' + kospi.price.toLocaleString() + ' (' + sign + kospi.changePct.toFixed(2) + '%)</span>';
-        } else {
-          macroEl.innerHTML = '<span class="neu">' + kospi.price.toLocaleString() + ' <span style="font-size:10px;color:var(--muted)">(장외)</span></span>';
-        }
+      // 장 상태 배지
+      var badge = document.getElementById("marketStatusBadge");
+      if (badge && data.marketStatus) {
+        var sm = {open:{cls:"status-open",text:"● 장중 (09:00~15:30)"},pre:{cls:"status-pre",text:"◑ 장전 시간외"},after:{cls:"status-pre",text:"◑ 장후 시간외"},weekend:{cls:"status-closed",text:"⏸ 주말 휴장"},closed:{cls:"status-closed",text:"⏸ 장외시간"}}[data.marketStatus] || {cls:"status-closed",text:"⏸ 장외시간"};
+        badge.className = "market-status-badge " + sm.cls;
+        badge.textContent = sm.text;
       }
-    }
-    if(kosdaq && kosdaq.price) {
-      document.getElementById('strip-kosdaq').innerHTML = fmtStrip(kosdaq, false);
-    }
-    if(usd && usd.price) {
-      document.getElementById('strip-usd').innerHTML = fmtStrip(usd, true);
-      const macroEl = document.getElementById('macro-usd');
-      if(macroEl) {
-        if(usd.changePct != null) {
-          const cls = usd.changePct >= 0 ? 'dn' : 'up';
-          const sign = usd.changePct >= 0 ? '+' : '';
-          macroEl.innerHTML = '<span class="' + cls + '">' + usd.price.toLocaleString() + '원 (' + sign + usd.changePct.toFixed(2) + '%)</span>';
-        } else {
-          macroEl.innerHTML = '<span class="neu">' + usd.price.toLocaleString() + '원 <span style="font-size:10px;color:var(--muted)">(장외)</span></span>';
-        }
+
+      // 한국 지수
+      var krMap = {};
+      (data.kr || []).forEach(function(i){ krMap[i.name] = i; });
+      if (!krMap["KOSPI"] && data.market) { Object.values(data.market).forEach(function(i){ krMap[i.name]=i; }); }
+      setEl("strip-kospi",  fmtKR(krMap["KOSPI"], false));
+      setEl("strip-kosdaq", fmtKR(krMap["KOSDAQ"], false));
+      setEl("strip-usd",    fmtKR(krMap["USD/KRW"], true));
+      var mk = document.getElementById("macro-kospi"); if(mk) mk.innerHTML = fmtKR(krMap["KOSPI"], false);
+      var mu = document.getElementById("macro-usd");   if(mu) mu.innerHTML = fmtKR(krMap["USD/KRW"], true);
+
+      // 미국 현물
+      var usMap = {};
+      (data.us || []).forEach(function(i){ usMap[i.name] = i; });
+      setEl("strip-sp500",  fmtUS(usMap["S&P500"]));
+      setEl("strip-nasdaq", fmtUS(usMap["나스닥"]));
+      setEl("strip-dow",    fmtUS(usMap["다우"]));
+      setEl("strip-dxy",    fmtUS(usMap["달러인덱스"]));
+
+      // 선물
+      var futMap = {};
+      (data.us_futures || []).forEach(function(i){ futMap[i.name] = i; });
+      setEl("strip-spfut", fmtUS(futMap["S&P선물"]));
+      setEl("strip-nqfut", fmtUS(futMap["나스닥선물"]));
+
+      // VIX
+      var vl = data.us_vix || [];
+      if (vl.length && vl[0].price) {
+        var v = vl[0].price;
+        setEl("strip-vix", '<span class="' + (v<15?"up":v<25?"neu":"dn") + '">' + v.toFixed(2) + "</span>");
+        var chip = document.getElementById("vix-chip");
+        if (chip) { chip.className="vix-chip "+(v<15?"vix-low":v<20?"vix-mid":v<30?"vix-mid":"vix-high"); chip.textContent=v<15?"안도":v<20?"중립":v<30?"경계":"공포"; }
       }
-    }
-
-    // ── 미국 현물 지수
-    const usMap = {};
-    (data.us || []).forEach(i => { usMap[i.name] = i; });
-    const elSP = document.getElementById('strip-sp500');
-    const elNQ = document.getElementById('strip-nasdaq');
-    const elDJ = document.getElementById('strip-dow');
-    const elDX = document.getElementById('strip-dxy');
-    if(elSP) elSP.innerHTML = fmtUS(usMap['S&P500']);
-    if(elNQ) elNQ.innerHTML = fmtUS(usMap['나스닥']);
-    if(elDJ) elDJ.innerHTML = fmtUS(usMap['다우']);
-    if(elDX) elDX.innerHTML = fmtUS(usMap['달러인덱스']);
-
-    // 선물
-    const futMap = {};
-    (data.us_futures || []).forEach(i => { futMap[i.name] = i; });
-    const elSF = document.getElementById('strip-spfut');
-    const elNF = document.getElementById('strip-nqfut');
-    if(elSF) elSF.innerHTML = fmtUS(futMap['S&P선물']);
-    if(elNF) elNF.innerHTML = fmtUS(futMap['나스닥선물']);
-
-    // VIX
-    const vixArr = data.us_vix || [];
-    const vixItem = vixArr[0];
-    const elVIX = document.getElementById('strip-vix');
-    const elVIXchip = document.getElementById('vix-chip');
-    if(elVIX && vixItem && vixItem.price) {
-      const v = vixItem.price;
-      const vCls = v < 15 ? 'up' : v < 20 ? 'neu' : v < 30 ? 'dn' : 'dn';
-      elVIX.innerHTML = '<span class="' + vCls + '">' + v.toFixed(2) + '</span>';
-      if(elVIXchip) {
-        if(v < 15)      { elVIXchip.className='vix-chip vix-low';  elVIXchip.textContent='안도'; }
-        else if(v < 20) { elVIXchip.className='vix-chip vix-mid';  elVIXchip.textContent='중립'; }
-        else if(v < 30) { elVIXchip.className='vix-chip vix-mid';  elVIXchip.textContent='경계'; }
-        else            { elVIXchip.className='vix-chip vix-high'; elVIXchip.textContent='공포'; }
-      }
-    }
-  } catch(e) { console.warn('Market fetch error:', e); }
-}
+    } catch(e) { console.warn("fetchMarket error:", e); }
+  }
 
 // ===== 주식 데이터 fetch =====
 async function fetchStocks() {
