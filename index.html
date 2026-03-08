@@ -701,114 +701,107 @@ function renderSummary(all) {
 }
 
 // ===== 마켓 지수 업데이트 =====
+function fmtKR(item, inv) {
+  if (!item || !item.price) return '<span style="color:#5a6a8a">--</span>';
+  var p = item.price.toLocaleString("ko-KR");
+  if (item.changePct == null) return '<span class="neu">' + p + ' <span style="color:#5a6a8a;font-size:10px">(장외)</span></span>';
+  var up = inv ? item.changePct < 0 : item.changePct >= 0;
+  return '<span class="' + (up?"up":"dn") + '">' + p + " " + (item.changePct>=0?"▲":"▼") + " " + Math.abs(item.changePct).toFixed(2) + "%</span>";
+}
+function fmtUS(item) {
+  if (!item || !item.price) return '<span style="color:#5a6a8a">--</span>';
+  var p = item.price.toLocaleString("en-US");
+  if (item.changePct == null) return '<span class="neu">' + p + "</span>";
+  var up = item.changePct >= 0;
+  return '<span class="' + (up?"up":"dn") + '">' + p + " " + (up?"▲":"▼") + " " + Math.abs(item.changePct).toFixed(2) + "%</span>";
+}
+function setEl(id, html) { var e = document.getElementById(id); if (e) e.innerHTML = html; }
+
 async function fetchMarket() {
-  function fmtKR(item, invertColor) {
-    if (!item || !item.price) return '<span style="color:var(--muted)">--</span>';
-    var priceStr = item.price.toLocaleString("ko-KR");
-    if (item.changePct == null) return '<span class="neu">' + priceStr + ' <span style="color:var(--muted);font-size:10px">(장외)</span></span>';
-    var up = invertColor ? item.changePct < 0 : item.changePct >= 0;
-    var cls = up ? "up" : "dn";
-    var arrow = item.changePct >= 0 ? "▲" : "▼";
-    return '<span class="' + cls + '">' + priceStr + " " + arrow + " " + Math.abs(item.changePct).toFixed(2) + "%</span>";
-  }
-  function fmtUS(item) {
-    if (!item || !item.price) return '<span style="color:var(--muted)">--</span>';
-    var priceStr = item.price.toLocaleString("en-US");
-    if (item.changePct == null) return '<span class="neu">' + priceStr + "</span>";
-    var up = item.changePct >= 0;
-    var cls = up ? "up" : "dn";
-    var arrow = up ? "▲" : "▼";
-    return '<span class="' + cls + '">' + priceStr + " " + arrow + " " + Math.abs(item.changePct).toFixed(2) + "%</span>";
-  }
-  function setEl(id, html) { var el = document.getElementById(id); if (el) el.innerHTML = html; }
+  try {
+    var res = await fetch("/api/market");
+    if (!res.ok) return;
+    var data = await res.json();
+    if (!data.success) return;
 
-  async function fetchMarket() {
-    try {
-      var res = await fetch("/api/market");
-      if (!res.ok) return;
-      var data = await res.json();
-      if (!data.success) return;
+    // 장 상태
+    var badge = document.getElementById("marketStatusBadge");
+    if (badge && data.marketStatus) {
+      var sm = {open:{cls:"status-open",text:"● 장중 (09:00~15:30)"},pre:{cls:"status-pre",text:"◑ 장전 시간외"},after:{cls:"status-pre",text:"◑ 장후 시간외"},weekend:{cls:"status-closed",text:"⏸ 주말 휴장"},closed:{cls:"status-closed",text:"⏸ 장외시간"}}[data.marketStatus]||{cls:"status-closed",text:"⏸ 장외시간"};
+      badge.className = "market-status-badge " + sm.cls;
+      badge.textContent = sm.text;
+    }
 
-      // 장 상태 배지
-      var badge = document.getElementById("marketStatusBadge");
-      if (badge && data.marketStatus) {
-        var sm = {open:{cls:"status-open",text:"● 장중 (09:00~15:30)"},pre:{cls:"status-pre",text:"◑ 장전 시간외"},after:{cls:"status-pre",text:"◑ 장후 시간외"},weekend:{cls:"status-closed",text:"⏸ 주말 휴장"},closed:{cls:"status-closed",text:"⏸ 장외시간"}}[data.marketStatus] || {cls:"status-closed",text:"⏸ 장외시간"};
-        badge.className = "market-status-badge " + sm.cls;
-        badge.textContent = sm.text;
-      }
+    // 한국
+    var kr = {};
+    (data.kr||[]).forEach(function(i){kr[i.name]=i;});
+    setEl("strip-kospi",  fmtKR(kr["KOSPI"], false));
+    setEl("strip-kosdaq", fmtKR(kr["KOSDAQ"], false));
+    setEl("strip-usd",    fmtKR(kr["USD/KRW"], true));
+    var mk = document.getElementById("macro-kospi"); if(mk) mk.innerHTML = fmtKR(kr["KOSPI"], false);
+    var mu = document.getElementById("macro-usd");   if(mu) mu.innerHTML = fmtKR(kr["USD/KRW"], true);
 
-      // 한국 지수
-      var krMap = {};
-      (data.kr || []).forEach(function(i){ krMap[i.name] = i; });
-      if (!krMap["KOSPI"] && data.market) { Object.values(data.market).forEach(function(i){ krMap[i.name]=i; }); }
-      setEl("strip-kospi",  fmtKR(krMap["KOSPI"], false));
-      setEl("strip-kosdaq", fmtKR(krMap["KOSDAQ"], false));
-      setEl("strip-usd",    fmtKR(krMap["USD/KRW"], true));
-      var mk = document.getElementById("macro-kospi"); if(mk) mk.innerHTML = fmtKR(krMap["KOSPI"], false);
-      var mu = document.getElementById("macro-usd");   if(mu) mu.innerHTML = fmtKR(krMap["USD/KRW"], true);
+    // 미국 현물
+    var us = {};
+    (data.us||[]).forEach(function(i){us[i.name]=i;});
+    setEl("strip-sp500",  fmtUS(us["S&P500"]));
+    setEl("strip-nasdaq", fmtUS(us["나스닥"]));
+    setEl("strip-dow",    fmtUS(us["다우"]));
+    setEl("strip-dxy",    fmtUS(us["달러인덱스"]));
 
-      // 미국 현물
-      var usMap = {};
-      (data.us || []).forEach(function(i){ usMap[i.name] = i; });
-      setEl("strip-sp500",  fmtUS(usMap["S&P500"]));
-      setEl("strip-nasdaq", fmtUS(usMap["나스닥"]));
-      setEl("strip-dow",    fmtUS(usMap["다우"]));
-      setEl("strip-dxy",    fmtUS(usMap["달러인덱스"]));
+    // 선물
+    var fut = {};
+    (data.us_futures||[]).forEach(function(i){fut[i.name]=i;});
+    setEl("strip-spfut", fmtUS(fut["S&P선물"]));
+    setEl("strip-nqfut", fmtUS(fut["나스닥선물"]));
 
-      // 선물
-      var futMap = {};
-      (data.us_futures || []).forEach(function(i){ futMap[i.name] = i; });
-      setEl("strip-spfut", fmtUS(futMap["S&P선물"]));
-      setEl("strip-nqfut", fmtUS(futMap["나스닥선물"]));
-
-      // VIX
-      var vl = data.us_vix || [];
-      if (vl.length && vl[0].price) {
-        var v = vl[0].price;
-        setEl("strip-vix", '<span class="' + (v<15?"up":v<25?"neu":"dn") + '">' + v.toFixed(2) + "</span>");
-        var chip = document.getElementById("vix-chip");
-        if (chip) { chip.className="vix-chip "+(v<15?"vix-low":v<20?"vix-mid":v<30?"vix-mid":"vix-high"); chip.textContent=v<15?"안도":v<20?"중립":v<30?"경계":"공포"; }
-      }
-    } catch(e) { console.warn("fetchMarket error:", e); }
-  }
+    // VIX
+    var vl = data.us_vix||[];
+    if (vl.length && vl[0].price) {
+      var v = vl[0].price;
+      setEl("strip-vix", '<span class="'+(v<15?"up":v<25?"neu":"dn")+'">'+ v.toFixed(2)+"</span>");
+      var chip = document.getElementById("vix-chip");
+      if (chip) { chip.className="vix-chip "+(v<15?"vix-low":v<20?"vix-mid":v<30?"vix-mid":"vix-high"); chip.textContent=v<15?"안도":v<20?"중립":v<30?"경계":"공포"; }
+    }
+  } catch(e) { console.error("fetchMarket error:", e); }
+}
 
 // ===== 주식 데이터 fetch =====
 async function fetchStocks() {
-  try {
-    const res = await fetch('/api/stocks');
-    if(!res.ok) return;
-    const data = await res.json();
-    if(!data.success) return;
+try {
+  const res = await fetch('/api/stocks');
+  if(!res.ok) return;
+  const data = await res.json();
+  if(!data.success) return;
 
-    data.stocks.forEach(s => {
-      const prev = stockData[s.code];
-      stockData[s.code] = s;
+  data.stocks.forEach(s => {
+    const prev = stockData[s.code];
+    stockData[s.code] = s;
 
-      // featured 카드 업데이트
-      if(s.code === '089030' || s.code === '403870') {
-        updateFeatured(s.code, s);
+    // featured 카드 업데이트
+    if(s.code === '089030' || s.code === '403870') {
+      updateFeatured(s.code, s);
+    }
+
+    // 일반 카드 업데이트 (이미 렌더된 경우)
+    const priceEl = document.getElementById(`price-${s.code}`);
+    if(priceEl && s.price) {
+      const oldText = priceEl.textContent;
+      priceEl.textContent = `${fmt(s.price)}원`;
+      if(prev?.price && prev.price !== s.price) {
+        priceEl.className = `price-main ${s.price > prev.price ? 'price-flash-up' : 'price-flash-dn'}`;
+        setTimeout(()=>{ priceEl.className='price-main'; }, 800);
       }
+    }
+    const changeEl = document.getElementById(`change-${s.code}`);
+    if(changeEl) changeEl.innerHTML = fmtChg(s.change, s.changePct);
+    const rangeEl = document.getElementById(`range-${s.code}`);
+    if(rangeEl) rangeEl.innerHTML = rangeBar(s.price, s.low52, s.high52);
+  });
 
-      // 일반 카드 업데이트 (이미 렌더된 경우)
-      const priceEl = document.getElementById(`price-${s.code}`);
-      if(priceEl && s.price) {
-        const oldText = priceEl.textContent;
-        priceEl.textContent = `${fmt(s.price)}원`;
-        if(prev?.price && prev.price !== s.price) {
-          priceEl.className = `price-main ${s.price > prev.price ? 'price-flash-up' : 'price-flash-dn'}`;
-          setTimeout(()=>{ priceEl.className='price-main'; }, 800);
-        }
-      }
-      const changeEl = document.getElementById(`change-${s.code}`);
-      if(changeEl) changeEl.innerHTML = fmtChg(s.change, s.changePct);
-      const rangeEl = document.getElementById(`range-${s.code}`);
-      if(rangeEl) rangeEl.innerHTML = rangeBar(s.price, s.low52, s.high52);
-    });
-
-    renderSummary(stockData);
-    document.getElementById('lastUpdated').textContent = new Date().toLocaleTimeString('ko-KR');
-  } catch(e) { console.warn('Stocks fetch error:', e); }
-}
+  renderSummary(stockData);
+  document.getElementById('lastUpdated').textContent = new Date().toLocaleTimeString('ko-KR');
+} catch(e) { console.warn('Stocks fetch error:', e); }
 
 // ===== 카드 그리드 초기 렌더링 =====
 function renderGrid() {
