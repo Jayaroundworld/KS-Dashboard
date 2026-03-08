@@ -802,6 +802,7 @@ try {
   renderSummary(stockData);
   document.getElementById('lastUpdated').textContent = new Date().toLocaleTimeString('ko-KR');
 } catch(e) { console.warn('Stocks fetch error:', e); }
+}
 
 // ===== 카드 그리드 초기 렌더링 =====
 function renderGrid() {
