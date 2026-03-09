@@ -36,8 +36,8 @@ export default async function handler(req, res) {
   }
 
   async function fetchV8(ticker) {
-    const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(ticker)}?interval=1d&range=5d`;
-    const r    = await fetch(url, { headers: { 'User-Agent': UA } });
+    const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(ticker)}?interval=1d&range=5d&_=${Date.now()}`;
+    const r    = await fetch(url, { headers: { 'User-Agent': UA, 'Cache-Control': 'no-cache', 'Pragma': 'no-cache' } });
     const data = await r.json();
     const result = data?.chart?.result?.[0];
     if (!result) throw new Error('No v8 data');
@@ -58,8 +58,8 @@ export default async function handler(req, res) {
   async function fetchOne({ name, ticker, group }) {
     // 1차: v7 quote
     try {
-      const url  = `https://query1.finance.yahoo.com/v7/finance/quote?symbols=${encodeURIComponent(ticker)}`;
-      const r    = await fetch(url, { headers: { 'User-Agent': UA, 'Accept': 'application/json' } });
+      const url  = `https://query1.finance.yahoo.com/v7/finance/quote?symbols=${encodeURIComponent(ticker)}&_=${Date.now()}`;
+      const r    = await fetch(url, { headers: { 'User-Agent': UA, 'Accept': 'application/json', 'Cache-Control': 'no-cache', 'Pragma': 'no-cache' } });
       if (!r.ok) throw new Error(`v7 ${r.status}`);
       const data = await r.json();
       const q    = data?.quoteResponse?.result?.[0];

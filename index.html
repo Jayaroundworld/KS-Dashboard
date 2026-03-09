@@ -362,7 +362,7 @@
       마지막 업데이트: <span id="lastUpdated">로딩 중...</span>
       &nbsp;·&nbsp; 장중 자동갱신: 매 <span>60</span>초
     </div>
-    <button class="refresh-btn" id="refreshBtn" onclick="fetchAll()">↻ 새로고침</button>
+    <span id="lastUpdated" style="font-size:11px;color:var(--muted);font-family:var(--font-mono);margin-right:8px"></span><button class="refresh-btn" id="refreshBtn" onclick="fetchAll()">↻ 새로고침</button>
   </div>
 
   <!-- TABS -->
@@ -1034,6 +1034,12 @@ async function fetchAll() {
   if(btn) { btn.classList.add('loading'); btn.textContent = '↻ 로딩 중...'; }
   await Promise.all([fetchMarket(), fetchStocks()]);
   if(btn) { btn.classList.remove('loading'); btn.textContent = '↻ 새로고침'; }
+  // 마지막 갱신 시각 표시
+  const now = new Date();
+  const kst = new Date(now.getTime() + (9*60 - now.getTimezoneOffset()) * 60000);
+  const ts = `${String(kst.getHours()).padStart(2,'0')}:${String(kst.getMinutes()).padStart(2,'0')}:${String(kst.getSeconds()).padStart(2,'0')}`;
+  const el = document.getElementById('lastUpdated');
+  if(el) el.textContent = `최종갱신 ${ts}`;
 }
 
 

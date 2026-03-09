@@ -25,8 +25,8 @@ export default async function handler(req, res) {
     async function fetchStock(stock) {
       // 1차: v7 quote (등락률 직접 포함)
       try {
-        const url = `https://query1.finance.yahoo.com/v7/finance/quote?symbols=${stock.ticker}`;
-        const r = await fetch(url, { headers: { 'User-Agent': UA, 'Accept': 'application/json' } });
+        const url = `https://query1.finance.yahoo.com/v7/finance/quote?symbols=${stock.ticker}&_=${Date.now()}`;
+        const r = await fetch(url, { headers: { 'User-Agent': UA, 'Accept': 'application/json', 'Cache-Control': 'no-cache', 'Pragma': 'no-cache' } });
         if (!r.ok) throw new Error(`v7 HTTP ${r.status}`);
         const data = await r.json();
         const q = data?.quoteResponse?.result?.[0];
@@ -47,7 +47,7 @@ export default async function handler(req, res) {
       } catch(_) {}
 
       // 2차: v8 chart fallback
-      const url = `https://query1.finance.yahoo.com/v8/finance/chart/${stock.ticker}?interval=1d&range=5d`;
+      const url = `https://query1.finance.yahoo.com/v8/finance/chart/${stock.ticker}?interval=1d&range=5d&_=${Date.now()}`;
       const response = await fetch(url, { headers: { 'User-Agent': UA } });
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
       const data = await response.json();
