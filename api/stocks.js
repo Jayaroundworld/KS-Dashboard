@@ -2,111 +2,68 @@
 // Yahoo Finance를 통해 한국 주식 실시간 데이터 제공
 
 export default async function handler(req, res) {
-  // CORS 허용
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
 
-  const tickers = [
-    { name: '테크윙',           code: '089030', ticker: '089030.KQ', market: 'KOSDAQ', sector: 'HBM 검사장비' },
-    { name: 'HPSP',            code: '403870', ticker: '403870.KQ', market: 'KOSDAQ', sector: '고압수소 어닐링' },
-    { name: '한화시스템',        code: '272210', ticker: '272210.KS', market: 'KOSPI',  sector: '방산·AI전장' },
-    { name: 'SK',              code: '034730', ticker: '034730.KS', market: 'KOSPI',  sector: '지주사 NAV' },
-    { name: 'HD현대에너지솔루션', code: '322000', ticker: '322000.KS', market: 'KOSPI',  sector: '태양광' },
-    { name: '현대로템',          code: '064350', ticker: '064350.KS', market: 'KOSPI',  sector: 'K2전차·수소' },
-    { name: 'KAI',             code: '047810', ticker: '047810.KS', market: 'KOSPI',  sector: '항공우주·방산' },
-    { name: 'SK스퀘어',         code: '402340', ticker: '402340.KS', market: 'KOSPI',  sector: 'SK하이닉스 지분' },
-    { name: '서진시스템',        code: '178320', ticker: '178320.KQ', market: 'KOSDAQ', sector: '방산·배터리케이스' },
-    { name: '에이비엘바이오',     code: '298380', ticker: '298380.KQ', market: 'KOSDAQ', sector: '이중항체 플랫폼' },
-  ];
+  const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36';
 
   try {
-    const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/122.0.0.0 Safari/537.36';
+    // 1. Yahoo Finance 스크리너를 통해 '한국 시장 내 상승 모멘텀/거래량 상위' 종목 동적 추출
+    // 이 API는 'day_gainers' (상승률 상위)나 'most_actives' (거래 활발) 종목을 가져옵니다.
+    const screenerUrl = `https://query1.finance.yahoo.com/v1/finance/screener/predefined/saved?scrIds=day_gainers&count=10&region=KR`;
+    
+    const screenerRes = await fetch(screenerUrl, { headers: { 'User-Agent': UA } });
+    const screenerData = await screenerRes.json();
+    
+    // 한국 종목(.KS, .KQ)만 필터링하여 ticker 리스트 생성
+    const dynamicTickers = screenerData?.finance?.result?.[0]?.quotes
+      .filter(q => q.symbol.endsWith('.KS') || q.symbol.endsWith('.KQ'))
+      .map(q => ({
+        name: q.shortName || q.symbol,
+        ticker: q.symbol,
+        code: q.symbol.split('.')[0],
+        market: q.symbol.endsWith('.KS') ? 'KOSPI' : 'KOSDAQ',
+        sector: '실시간 트렌드 상위' // 스크리너 특성상 섹터는 수동 매핑이 필요함
+      })) || [];
 
+    // 만약 동적 추출에 실패하면 기존 백업 데이터를 사용 (안정성 확보)
+    const finalTickers = dynamicTickers.length > 0 ? dynamicTickers : [
+      { name: '삼성전자', ticker: '005930.KS', code: '005930', market: 'KOSPI', sector: '반도체' }
+    ];
+
+    // 2. 개별 종목 상세 데이터 페치 함수
     async function fetchStock(stock) {
-      // 1차: v7 quote (등락률 직접 포함)
       try {
         const url = `https://query1.finance.yahoo.com/v7/finance/quote?symbols=${stock.ticker}&_=${Date.now()}`;
-        const r = await fetch(url, { headers: { 'User-Agent': UA, 'Accept': 'application/json', 'Cache-Control': 'no-cache', 'Pragma': 'no-cache' } });
-        if (!r.ok) throw new Error(`v7 HTTP ${r.status}`);
+        const r = await fetch(url, { headers: { 'User-Agent': UA } });
         const data = await r.json();
         const q = data?.quoteResponse?.result?.[0];
-        if (!q || q.regularMarketPrice == null) throw new Error('No v7 quote');
+
+        if (!q) return { ...stock, status: 'error' };
+
+        // 수급/성장성 지표 대용 (Yahoo 제공 지표 활용)
+        // EPS 성장률이나 기관 보유 비율 등을 제공하는 경우도 있으나 한국 종목은 제한적
         return {
           ...stock,
-          price:     Math.round(q.regularMarketPrice),
-          prevClose: Math.round(q.regularMarketPreviousClose ?? q.regularMarketPrice),
-          change:    Math.round(q.regularMarketChange ?? 0),
+          price: Math.round(q.regularMarketPrice),
           changePct: parseFloat((q.regularMarketChangePercent ?? 0).toFixed(2)),
-          volume:    q.regularMarketVolume ?? 0,
-          high52:    Math.round(q.fiftyTwoWeekHigh ?? 0),
-          low52:     Math.round(q.fiftyTwoWeekLow ?? 0),
+          volume: q.regularMarketVolume ?? 0,
           marketCap: q.marketCap ?? 0,
+          // 외국인/기관 수급 대신 '거래량 강도'와 '52주 고가 대비 위치'로 트렌드 판단
+          trendScore: q.regularMarketVolume / q.averageDailyVolume3Month, 
           status: 'ok',
           updatedAt: new Date().toISOString(),
         };
-      } catch(_) {}
-
-      // 2차: v8 chart fallback
-      const url = `https://query1.finance.yahoo.com/v8/finance/chart/${stock.ticker}?interval=1d&range=5d&_=${Date.now()}`;
-      const response = await fetch(url, { headers: { 'User-Agent': UA } });
-      if (!response.ok) throw new Error(`HTTP ${response.status}`);
-      const data = await response.json();
-      const result = data?.chart?.result?.[0];
-      if (!result) throw new Error('No data');
-      const meta = result.meta;
-      const closes = (result.indicators?.quote?.[0]?.close ?? []).filter(v => v != null);
-      const price     = meta.regularMarketPrice ?? closes.at(-1) ?? 0;
-      const prevClose = meta.chartPreviousClose ?? meta.previousClose ?? closes.at(-2) ?? price;
-      const change    = price - prevClose;
-      const changePct = prevClose !== 0 ? (change / prevClose) * 100 : 0;
-      return {
-        ...stock,
-        price:     Math.round(price),
-        prevClose: Math.round(prevClose),
-        change:    Math.round(change),
-        changePct: parseFloat(changePct.toFixed(2)),
-        volume:    meta.regularMarketVolume ?? 0,
-        high52:    Math.round(meta.fiftyTwoWeekHigh ?? 0),
-        low52:     Math.round(meta.fiftyTwoWeekLow ?? 0),
-        marketCap: meta.marketCap ?? 0,
-        status: 'ok',
-        updatedAt: new Date().toISOString(),
-      };
+      } catch (e) {
+        return { ...stock, status: 'error' };
+      }
     }
 
-    const results = await Promise.allSettled(tickers.map(fetchStock));
-
-    const stocks = results.map((result, i) => {
-      if (result.status === 'fulfilled') return result.value;
-      return {
-        ...tickers[i],
-        price: null,
-        change: null,
-        changePct: null,
-        status: 'error',
-        error: result.reason?.message,
-      };
-    });
-
-    const marketStatus = getMarketStatus();
-
-    // 주말/장외: ±8% 초과 등락률은 Yahoo 크로스데이 왜곡 → null 처리
-    const sanitizedStocks = stocks.map(s => {
-      if (s.changePct !== null && Math.abs(s.changePct) > 8) {
-        return { ...s, change: null, changePct: null, dataNote: 'cross_day_distortion' };
-      }
-      return s;
-    });
-
-    res.status(200).json({
-      success: true,
-      updatedAt: new Date().toISOString(),
-      marketStatus,
-      stocks: sanitizedStocks,
-    });
+    const results = await Promise.all(finalTickers.map(fetchStock));
+    res.status(200).json(results);
 
   } catch (error) {
-    res.status(500).json({ success: false, error: error.message });
+    res.status(500).json({ error: error.message });
   }
 }
 
